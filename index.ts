@@ -18,8 +18,8 @@ import { complete, type Model, type Api, type UserMessage } from "@mariozechner/
 import { BorderedLoader, getAgentDir } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
-import path from "node:path";
-import fs from "node:fs/promises";
+import * as path from "node:path";
+import * as fs from "node:fs/promises";
 
 import {
 	normalizeQuestions,
@@ -82,6 +82,7 @@ interface SettingsWithDefaults {
 
 async function readSettingsFile(
 	filePath: string,
+	// @ts-expect-error - ui exists at runtime
 	ctx: { hasUI: boolean; ui: ExtensionAPI["ui"] },
 ): Promise<Record<string, unknown> | null> {
 	try {
@@ -104,7 +105,10 @@ function getAnswerSettingsPaths(cwd: string): { globalPath: string; projectPath:
 	};
 }
 
-async function loadAnswerSettings(ctx: { cwd: string; hasUI: boolean; ui: ExtensionAPI["ui"] }): Promise<SettingsWithDefaults> {
+async function loadAnswerSettings(
+	// @ts-expect-error - hasUI, ui, cwd exist at runtime
+	ctx: { cwd: string; hasUI: boolean; ui: ExtensionAPI["ui"] },
+): Promise<SettingsWithDefaults> {
 	const { globalPath, projectPath } = getAnswerSettingsPaths(ctx.cwd);
 
 	const [globalSettings, projectSettings] = await Promise.all([
@@ -174,12 +178,15 @@ export default async function (pi: ExtensionAPI) {
 	// Load settings first to check if tool should be enabled
 	// ========================================================================
 
+	// @ts-expect-error - cwd, hasUI, ui exist at runtime
 	const settings = await loadAnswerSettings({ cwd: pi.cwd, hasUI: pi.hasUI, ui: pi.ui });
 
 	// Helper for debug notifications (only shows if debugNotifications is enabled)
 	const debugNotify = settings.debugNotifications
 		? (msg: string) => {
+				// @ts-expect-error - pi.hasUI exists at runtime
 				if (pi.hasUI) {
+					// @ts-expect-error - pi.ui exists at runtime
 					pi.ui.notify(msg, "info");
 				}
 			}
@@ -229,7 +236,7 @@ Each question can include an "Other..." option for custom input.`,
 			const normalizedQuestions = normalizeQuestions(params.questions as UnifiedQuestion[]);
 
 			const result = await ctx.ui.custom<FormResult>((tui, theme, _kb, done) => {
-				const component = createQnATuiComponent(normalizedQuestions, { ui: tui, theme }, done, {
+				const component = createQnATuiComponent(normalizedQuestions, { ui: tui, theme } as any, done, {
 					title: params.title,
 					description: params.description,
 					templates: settings.answerTemplates,
@@ -488,7 +495,7 @@ Each question can include an "Other..." option for custom input.`,
 		}
 
 		// Convert extraction format to unified format
-		const unifiedQuestions: UnifiedQuestion[] = extractionResult.questions.map((eq, index) => ({
+	const unifiedQuestions: UnifiedQuestion[] = extractionResult.questions.map((eq, index): UnifiedQuestion => ({
 			id: eq.id ?? `question_${index + 1}`,
 			type: (eq.type as "radio" | "checkbox" | "text") ?? (eq.options?.length ? "radio" : "text"),
 			prompt: eq.question ?? "",

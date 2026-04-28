@@ -154,8 +154,12 @@ export function createDraftStore(
 // Response Normalization
 // ============================================================================
 
-function getQuestionOptions(question: UnifiedQuestion): { label: string; description?: string }[] {
-	return question.options ?? [];
+function getQuestionOptions(question: UnifiedQuestion): Array<{ label: string; value: string; description?: string }> {
+	return (question.options ?? []).map((o) => ({
+		label: o.label,
+		value: o.value ?? o.label,
+		description: o.description,
+	}));
 }
 
 function formatResponseAnswer(question: UnifiedQuestion, response: QnAResponse): string {

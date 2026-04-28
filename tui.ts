@@ -90,7 +90,8 @@ export function createQnATuiComponent(
 	const editorTheme: EditorTheme = {
 		borderColor: (s) => theme.fg("dim", s),
 		selectList: {
-			matchHighlight: (s) => theme.fg("accent", s),
+		// @ts-expect-error - matchHighlight is a custom property not in pi-tui types
+	matchHighlight: (s) => theme.fg("accent", s),
 			itemSecondary: (s) => theme.fg("muted", s),
 		},
 	};
@@ -385,7 +386,7 @@ export function createQnATuiComponent(
 		if (q.type === "checkbox") {
 			const set = checkAnswers.get(q.id) ?? new Set<string>();
 			const custom = checkCustom.get(q.id)?.trim();
-			const values = [...set];
+			const values = Array.from(set);
 			if (custom) values.push(custom);
 			return values.join(", ");
 		}
@@ -434,7 +435,7 @@ export function createQnATuiComponent(
 			} else if (q.type === "checkbox") {
 				const set = checkAnswers.get(q.id) ?? new Set<string>();
 				const custom = checkCustom.get(q.id)?.trim();
-				const values = [...set];
+				const values = Array.from(set);
 				if (custom) values.push(custom);
 				answers.push({ id: q.id, type: "checkbox", value: values, wasCustom: !!custom });
 			} else {
@@ -459,7 +460,7 @@ export function createQnATuiComponent(
 	// Invalidation
 	const invalidate = () => {
 		cachedLines = undefined;
-		tui.requestRender();
+		(tui as { requestRender?: () => void }).requestRender?.();
 	};
 
 	// Handle input
@@ -707,6 +708,7 @@ export function createQnATuiComponent(
 		}
 
 		// Typing a key selects Other and starts editor (for radio/checkbox)
+		// @ts-expect-error - intentional guard for non-text types
 		if (q.type !== "text" && data.length === 1 && data.charCodeAt(0) >= 32) {
 			const totalOpts = optionCount(q);
 			// Select Other option (last one)
@@ -926,7 +928,7 @@ export function createQnATuiComponent(
 				} else if (q.type === "checkbox") {
 					const set = checkAnswers.get(q.id) ?? new Set<string>();
 					const custom = checkCustom.get(q.id)?.trim();
-					const values = [...set];
+					const values = Array.from(set);
 					if (custom) values.push(custom);
 					answerText = values.join(", ");
 				} else {

@@ -207,7 +207,7 @@ export function parseExtractionResult(text: string): ExtractionResult | null {
 			// Normalize type (defaults to radio if options exist, otherwise text)
 			let type: "radio" | "checkbox" | "text" = "text";
 			if (typeof q.type === "string" && ["radio", "checkbox", "text"].includes(q.type)) {
-				type = q.type;
+				type = q.type as "radio" | "checkbox" | "text";
 			} else if (Array.isArray(q.options) && q.options.length > 0) {
 				// Infer from options if no explicit type
 				// Default to radio, but extraction prompt can specify checkbox
