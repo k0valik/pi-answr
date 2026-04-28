@@ -36,9 +36,13 @@ import {
 	type ModelPreference,
 } from "./extraction";
 
+import { normalizeTemplates } from "./templates";
+
 import {
-	normalizeTemplates,
 	type Template,
+} from "./templates";
+
+import {
 	type AnswerDraftSettings,
 	DEFAULT_DRAFT_SETTINGS,
 	createDraftStore,

@@ -501,7 +501,7 @@ export function createQnATuiComponent(
 				return;
 			}
 
-			if (matchesKey(data, Key.ctrl("c")) {
+			if (matchesKey(data, Key.ctrl("c"))) {
 				cancel();
 				return;
 			}
@@ -510,7 +510,7 @@ export function createQnATuiComponent(
 		}
 
 		// Global cancel
-		if (matchesKey(data, Key.ctrl("c")) {
+		if (matchesKey(data, Key.ctrl("c"))) {
 			cancel();
 			return;
 		}
@@ -524,13 +524,13 @@ export function createQnATuiComponent(
 		}
 
 		// Ctrl+T for templates
-		if (matchesKey(data, Key.ctrl("t")) {
+		if (matchesKey(data, Key.ctrl("t"))) {
 			applyNextTemplate();
 			return;
 		}
 
 		// Ctrl+E for append mode
-		if (matchesKey(data, Key.ctrl("e")) {
+		if (matchesKey(data, Key.ctrl("e"))) {
 			const q = curQ();
 			if (q && q.type !== "text" && (q.options?.length ?? 0) > 0) {
 				// Keep current selection, just enable editor for appending
@@ -624,7 +624,7 @@ export function createQnATuiComponent(
 				advanceTab();
 				return;
 			}
-			if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab")) {
+			if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) {
 				saveCurrentResponse();
 				switchTab(matchesKey(data, Key.shift("tab")) ? -1 : 1);
 				return;

@@ -1,4 +1,4 @@
-# pi-answer
+# pi-answer 🗣️
 
 Unified Q&A extension that lets LLMs ask users structured questions interactively.
 
@@ -15,10 +15,6 @@ Unified Q&A extension that lets LLMs ask users structured questions interactivel
 **Who it is for:**
 - Developers using the Pi coding agent who want structured back-and-forth with the LLM
 - Extension authors building tools that need user input before proceeding
-
-**What it is not:**
-- Not a general-purpose form builder
-- Not a database or storage system (drafts are session-scoped only)
 
 ## Quick Start
 
@@ -131,6 +127,10 @@ The LLM sees this tool with:
 - **Auto-save** — Answers are saved and can be resumed
 - **Draft restore** — Prompts to restore saved answers on `/answer:again`
 - **Templates** — Predefined answer formats (Q&A, Concise, Numbered)
+- **Unanswered detection** — Alerts before submission if any questions are incomplete
+- **Circular navigation** — Tab cycles through questions (wraps at end)
+- **Template cycling** — Ctrl+T swaps between answer templates with live preview
+- **Confirmation flow** — Two-step confirm: select option then submit
 
 ## How It Works (High-Level)
 
@@ -141,6 +141,19 @@ The LLM sees this tool with:
 3. **Draft system**: Answers are auto-saved to a draft store. On `/answer:again`, the form reopens with saved values if the user confirms.
 
 4. **Return format**: Answers return as `Q{number}: {label}: {value}` for easy parsing.
+
+## Keyboard Shortcuts
+
+While the Q&A TUI is open:
+
+| Key | Action |
+|-----|--------|
+| `Tab` | Next question (wraps to first) |
+| `Shift+Tab` | Previous question (wraps to last) |
+| `Up/Down` | Cycle through options |
+| `Enter` | Confirm / Submit (two-step) |
+| `Ctrl+T` | Cycle answer templates |
+| `Escape` | Cancel / Go back |
 
 ## Configuration
 
@@ -156,6 +169,28 @@ The LLM sees this tool with:
 | `drafts.promptOnRestore` | boolean | `true` | Prompt before restoring drafts |
 
 Override in `settings.json` under `answer:`. See `example.config.json` for full reference.
+
+## Answer Templates
+
+Templates use placeholders to format the final answer text:
+
+- `{{question}}` — The question text
+- `{{context}}` — Optional question context
+- `{{answer}}` — The user's answer
+- `{{index}}` — Question number (1-based)
+- `{{total}}` — Total questions in the form
+
+**Example template:**
+```
+{{index}}. {{question}}
+   Answer: {{answer}}
+```
+
+Renders as:
+```
+1. Which color do you prefer?
+   Answer: blue
+```
 
 ## Examples
 
@@ -193,3 +228,47 @@ User runs `/answer` → form shows three checkboxes → user selects → answers
 ### 3. Resume with /answer:again
 
 User previously answered `/answer`, then closed. Run `/answer:again` → prompts to restore → form reopens with prior answers filled in.
+
+### 4. Checkbox with multiple selections
+
+```json
+{
+  "questions": [
+    {
+      "id": "features",
+      "type": "checkbox",
+      "prompt": "Which features to add?",
+      "options": [
+        { "value": "dark_mode", "label": "Dark mode" },
+        { "value": "autosave", "label": "Auto-save" },
+        { "value": "export", "label": "Export" }
+      ]
+    }
+  ]
+}
+```
+
+Output:
+```
+Q1: features: dark_mode, export
+```
+
+### 5. Free-text input
+
+```json
+{
+  "questions": [
+    {
+      "id": "feedback",
+      "type": "text",
+      "prompt": "Any additional feedback?",
+      "placeholder": "Enter your feedback here..."
+    }
+  ]
+}
+```
+
+Output:
+```
+Q1: feedback: This tool is really helpful!
+```
