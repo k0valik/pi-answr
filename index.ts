@@ -165,11 +165,27 @@ const AskUserQuestionParams = Type.Object({
 // Extension Entry
 // ============================================================================
 
-export default function (pi: ExtensionAPI) {
+export default async function (pi: ExtensionAPI) {
 	// ========================================================================
-	// Register ask_user_question tool
+	// Load settings first to check if tool should be enabled
 	// ========================================================================
 
+	const settings = await loadAnswerSettings({ cwd: pi.cwd, hasUI: pi.hasUI, ui: pi.ui });
+
+	// Helper for debug notifications (only shows if debugNotifications is enabled)
+	const debugNotify = settings.debugNotifications
+		? (msg: string) => {
+				if (pi.hasUI) {
+					pi.ui.notify(msg, "info");
+				}
+			}
+		: () => {};
+
+	// ========================================================================
+	// Register ask_user_question tool (only if enabled in settings)
+	// ========================================================================
+
+	if (settings.toolEnabled) {
 	pi.registerTool({
 		name: "ask_user_question",
 		label: "Ask User",
@@ -189,6 +205,7 @@ Each question can include an "Other..." option for custom input.`,
 
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			if (!ctx.hasUI) {
+				debugNotify("tool ask_user_question failed: UI not available");
 				return {
 					content: [{ type: "text", text: "Error: UI not available" }],
 					details: { questions: [], answers: [], cancelled: true },
@@ -196,6 +213,7 @@ Each question can include an "Other..." option for custom input.`,
 			}
 
 			if (!params.questions.length) {
+				debugNotify("tool ask_user_question failed: no questions provided");
 				return {
 					content: [{ type: "text", text: "Error: No questions provided" }],
 					details: { questions: [], answers: [], cancelled: true },
@@ -224,18 +242,19 @@ Each question can include an "Other..." option for custom input.`,
 
 			// Format result
 			const answerLines: string[] = [];
-			for (const a of result.answers) {
+			for (let idx = 0; idx < result.answers.length; idx++) {
+				const a = result.answers[idx];
 				const q = normalizedQuestions.find((q) => q.id === a.id);
 				const label = q?.label ?? a.id;
 
 				if (a.type === "radio") {
 					const prefix = a.wasCustom ? "(wrote) " : "";
-					answerLines.push(`${label}: ${prefix}${a.value}`);
+					answerLines.push(`Q${idx + 1}: ${label}: ${prefix}${a.value}`);
 				} else if (a.type === "checkbox") {
 					const values = Array.isArray(a.value) ? a.value : [a.value];
-					answerLines.push(`${label}: ${values.length ? values.join(", ") : "(none)"}`);
+					answerLines.push(`Q${idx + 1}: ${label}: ${values.length ? values.join(", ") : "(none)"}`);
 				} else {
-					answerLines.push(`${label}: ${a.value || "(empty)"}`);
+					answerLines.push(`Q${idx + 1}: ${label}: ${a.value || "(empty)"}`);
 				}
 			}
 
@@ -284,6 +303,9 @@ Each question can include an "Other..." option for custom input.`,
 			return new Text(lines.join("\n"), 0, 0);
 		},
 	});
+	
+	// Close tool registration conditional
+	}
 
 	// ========================================================================
 	// Cache for /answer:again
@@ -517,7 +539,7 @@ Each question can include an "Other..." option for custom input.`,
 				value = String(a.value);
 			}
 
-			answerLines.push(`${label}: ${value}`);
+			answerLines.push(`Q${i + 1}: ${label}: ${value}`);
 		}
 
 		// Send answers
@@ -622,7 +644,7 @@ Each question can include an "Other..." option for custom input.`,
 				value = String(a.value);
 			}
 
-			answerLines.push(`${label}: ${value}`);
+			answerLines.push(`Q${i + 1}: ${label}: ${value}`);
 		}
 
 		pi.sendMessage(

@@ -1,0 +1,23 @@
+{
+	"$schema": "https://raw.githubusercontent.com/k0valik/pi-answr/master/schema.json",
+	"answer": {
+		"toolEnabled": true,
+		"extractionModels": [
+			{ "provider": "openai-codex", "id": "gpt-5.4-mini" },
+			{ "provider": "github-copilot", "id": "gpt-5.4-mini" },
+			{ "provider": "anthropic", "id": "claude-haiku-4-5" }
+		],
+		"extractionTimeoutMs": 30000,
+		"debugNotifications": false,
+		"answerTemplates": [
+			{ "label": "Q&A", "template": "Q{{index}}: {{question}}\nA: {{answer}}" },
+			{ "label": "Concise", "template": "{{question}}: {{answer}}" },
+			{ "label": "Numbered", "template": "Q{{index}}/{{total}}: {{answer}}" }
+		],
+		"drafts": {
+			"enabled": true,
+			"autosaveMs": 1000,
+			"promptOnRestore": true
+		}
+	}
+}
