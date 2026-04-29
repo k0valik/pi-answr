@@ -252,6 +252,18 @@ export function createQnATuiComponent(
 		return q.options.length + (q.allowOther ? 1 : 0);
 	};
 
+	// Should use editor for current question (from legacy answer/index.ts)
+	const shouldUseEditor = (): boolean => {
+		const q = curQ();
+		if (!q) return false;
+		if (q.type === "text") return true;
+		const options = q.options ?? [];
+		const otherIndex = options.length;
+		// Check both selected index AND cursor position (for Other option handling)
+		const isOnOther = responses[currentIndex].selectedOptionIndex === otherIndex || cursorIdx === otherIndex;
+		return isOnOther || editorMode;
+	};
+
 	// Navigation
 	const navigateTo = (index: number) => {
 		if (index < 0 || index >= questions.length) return;
@@ -326,9 +338,20 @@ export function createQnATuiComponent(
 
 		const otherIndex = q.options.length;
 		const isOnOther = responses[currentIndex].selectedOptionIndex === otherIndex;
-		const shouldUseEditor = isOnOther || editorMode;
+		// Restore editor mode if there was a custom answer OR if was in editor mode
+		let shouldRestoreEditor = editorMode;
+		if (!shouldRestoreEditor && q.allowOther) {
+			// Check if previous answer was custom
+			if (q.type === "radio") {
+				const existing = radioAnswers.get(q.id);
+				shouldRestoreEditor = existing?.wasCustom ?? false;
+			} else if (q.type === "checkbox") {
+				const customText = checkCustom.get(q.id);
+				shouldRestoreEditor = !!customText?.trim();
+			}
+		}
 
-		if (shouldUseEditor && q.allowOther) {
+		if (shouldRestoreEditor && q.allowOther) {
 			// Get custom answer
 			if (q.type === "radio") {
 				const existing = radioAnswers.get(q.id);
@@ -336,6 +359,8 @@ export function createQnATuiComponent(
 			} else if (q.type === "checkbox") {
 				editor.setText(checkCustom.get(q.id) ?? "");
 			}
+			// Restore editor mode so the editor is shown
+			editorMode = true;
 		} else {
 			editor.setText("");
 		}
@@ -541,12 +566,8 @@ export function createQnATuiComponent(
 				return;
 			}
 
-			// Tab to cycle back to first question
-			if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) {
-				switchTab(matchesKey(data, Key.shift("tab")) ? -1 : 1);
-				invalidate();
-				return;
-			}
+			// NO Tab handling in confirmation page - falls through and is ignored
+			// Only Up/Down/Enter/Escape work here
 
 			if (matchesKey(data, Key.ctrl("c"))) {
 				cancel();
@@ -562,11 +583,12 @@ export function createQnATuiComponent(
 			return;
 		}
 
-		// FIXED: Handle Shift+Enter for newline in text inputs
-		// From answer/index.ts:718
+		// Shift+Enter for newline - check shouldUseEditor first
 		if (matchesKey(data, Key.shift("enter"))) {
-			editor.handleInput("\n");
-			invalidate();
+			if (shouldUseEditor()) {
+				editor.handleInput("\n");
+				invalidate();
+			}
 			return;
 		}
 
@@ -607,16 +629,26 @@ export function createQnATuiComponent(
 			return;
 		}
 
-		// Tab navigation - use switchTab to cycle including Summary
+		// Tab navigation - cycle only through questions (NOT to confirmation)
 		if (matchesKey(data, Key.tab)) {
-			switchTab(1);
+			saveCurrentResponse();
+			if (currentIndex < questions.length - 1) {
+				navigateTo(currentIndex + 1);
+			} else {
+				navigateTo(0); // Wrap to first question
+			}
 			invalidate();
 			return;
 		}
 
-		// Shift+Tab navigation - use switchTab to cycle backward including Summary
+		// Shift+Tab navigation - cycle backward only through questions
 		if (matchesKey(data, Key.shift("tab"))) {
-			switchTab(-1);
+			saveCurrentResponse();
+			if (currentIndex > 0) {
+				navigateTo(currentIndex - 1);
+			} else {
+				navigateTo(questions.length - 1); // Wrap to last question
+			}
 			invalidate();
 			return;
 		}
@@ -656,12 +688,7 @@ export function createQnATuiComponent(
 
 		// Text question
 		if (q.type === "text") {
-			// Shift+Enter for newline in text inputs
-			if (matchesKey(data, Key.shift("enter"))) {
-				editor.handleInput("\n");
-				invalidate();
-				return;
-			}
+			// Shift+Enter handled globally above with shouldUseEditor check
 
 			if (matchesKey(data, Key.enter) && !matchesKey(data, Key.shift("enter"))) {
 				saveCurrentResponse();
@@ -703,7 +730,7 @@ export function createQnATuiComponent(
 		}
 
 		// Radio select with Enter
-		if (q.type === "radio" && matchesKey(data, Key.enter)) {
+		if (q.type === "radio" && matchesKey(data, Key.enter) && !matchesKey(data, Key.shift("enter"))) {
 			const isOther = q.allowOther && cursorIdx === q.options.length;
 			if (isOther) {
 				otherMode = true;
@@ -764,7 +791,7 @@ export function createQnATuiComponent(
 		}
 
 		// Checkbox Enter to advance
-		if (q.type === "checkbox" && matchesKey(data, Key.enter)) {
+		if (q.type === "checkbox" && matchesKey(data, Key.enter) && !matchesKey(data, Key.shift("enter"))) {
 			advanceTab();
 			return;
 		}
@@ -789,45 +816,70 @@ export function createQnATuiComponent(
 
 		const lines: string[] = [];
 		const maxW = Math.min(width, 120);
+		const boxWidth = Math.max(40, Math.min(width - 4, 120));
+		const contentWidth = boxWidth - 4;
 
-		const hr = () => lines.push(theme.fg("dim", "─".repeat(maxW)));
-		const add = (s: string) => lines.push(truncateToWidth(s, maxW));
+		const horizontalLine = (count: number) => "─".repeat(count);
 
-		hr();
+		// Boxed container helpers (from legacy answer)
+		const boxLine = (content: string, leftPad: number = 2): string => {
+			// Truncate content first to prevent breaking the box
+			const safeContent = truncateToWidth(content, contentWidth);
+			const paddedContent = " ".repeat(leftPad) + safeContent;
+			const contentLen = visibleWidth(paddedContent);
+			const rightPad = Math.max(0, boxWidth - contentLen - 2);
+			return theme.fg("dim", "│") + paddedContent + " ".repeat(rightPad) + theme.fg("dim", "│");
+		};
 
-		// FIXED: Title and description (from askusertool.ts:552-558)
+		const emptyBoxLine = (): string => {
+			return theme.fg("dim", "│") + " ".repeat(boxWidth - 2) + theme.fg("dim", "│");
+		};
+
+		// Simple add helper for flexible content
+		const add = (s: string) => {
+			lines.push(boxLine(truncateToWidth(s, contentWidth)));
+		};
+
+		// Boxed container - TOP
+		lines.push(theme.fg("dim", `╭${horizontalLine(boxWidth - 2)}╮`));
+
+		// Title
 		if (options?.title) {
-			add(` ${theme.fg("accent", theme.bold(options.title))}`);
+			const title = `${options.title} ${theme.fg("dim", `(${currentIndex + 1}/${questions.length})`)}`;
+			lines.push(boxLine(title));
+			lines.push(theme.fg("dim", `├${horizontalLine(boxWidth - 2)}┤`));
 		}
-		if (options?.description) {
-			add(` ${theme.fg("muted", options.description)}`);
-		}
-		if (options?.title || options?.description) lines.push("");
 
-		// Progress indicators with Summary tab (answer style: ● current, ✓ answered, ○ unanswered, ▸ Summary)
+		// Progress indicators with brackets and delimiter
 		const progressParts: string[] = [];
 		for (let i = 0; i < questions.length; i++) {
 			const current = !showingConfirmation && i === currentIndex;
 			const answered = isAnswered(questions[i]);
+			const committed = responses[i].committed;
 			if (current) {
-				progressParts.push(theme.fg("accent", SYM.currentDot));
+				// Current question - cyan
+				progressParts.push(theme.fg("accent", "[●]"));
+			} else if (committed) {
+				// Committed (submitted with Enter) - green checkmark
+				progressParts.push(theme.fg("success", "[✓]"));
 			} else if (answered) {
-				progressParts.push(theme.fg("success", SYM.answeredCheck));
+				// Answered but not submitted - green
+				progressParts.push(theme.fg("success", "[●]"));
 			} else {
-				progressParts.push(theme.fg("dim", SYM.unansweredDot));
+				// Unanswered - dim/yellow
+				progressParts.push(theme.fg("dim", "[○]"));
 			}
 		}
 		// Add Summary tab
 		if (showingConfirmation) {
-			progressParts.push(theme.fg("accent", theme.bold("▸ Summary")));
+			progressParts.push(theme.fg("accent", theme.bold("[Summary]")));
 		} else {
-			progressParts.push(theme.fg("dim", "Summary"));
+			progressParts.push(theme.fg("dim", "[Summary]"));
 		}
 
-		// Add delimiters between each tab (pipe separator for visual separation)
-		const delim = theme.fg("dim", "|");
-		const withDelim = progressParts.map((p, i) => i > 0 ? `${delim} ${p}` : p).join("");
-		add(` ${withDelim}`);
+		// Join with middle dot delimiter
+		const withDelim = progressParts.join(theme.fg("dim", " · "));
+		lines.push(boxLine(withDelim));
 
 		if (!showingConfirmation && curQ()) {
 			const q = curQ()!;
@@ -858,7 +910,7 @@ export function createQnATuiComponent(
 
 			lines.push("");
 
-			// Options
+				// Options with numbered labels (from legacy answer)
 			if (q.type === "radio" || q.type === "checkbox") {
 				const selected = q.type === "radio" ? radioAnswers.get(q.id) : null;
 				const isRadio = q.type === "radio";
@@ -880,21 +932,23 @@ export function createQnATuiComponent(
 						: (isSelected ? theme.fg("accent", SYM.checkOn) : theme.fg("dim", SYM.checkOff));
 					const pointer = isCursor ? theme.fg("accent", SYM.pointer) : " ";
 
-					const prefix = ` ${pointer} ${box} `;
-					const prefixWidth = visibleWidth(prefix);
-					const labelLines = wrapText(opt.label, Math.max(1, maxW - prefixWidth));
+					// Add numbered prefix (1. Option A)
+					const optionPrefix = `${pointer} ${box} ${i + 1}. `;
+					const prefixWidth = visibleWidth(optionPrefix);
+					const labelLines = wrapText(opt.label, Math.max(1, contentWidth - prefixWidth));
 					const color = isCursor ? "accent" : isSelected ? "text" : "muted";
 
 					for (let li = 0; li < labelLines.length; li++) {
-						const linePrefix = li === 0 ? prefix : " ".repeat(prefixWidth);
-						add(`${linePrefix}${theme.fg(color, labelLines[li])}`);
+						const linePrefix = li === 0 ? optionPrefix : " ".repeat(prefixWidth);
+						lines.push(boxLine(`${linePrefix}${theme.fg(color, labelLines[li])}`));
 					}
 
-					// Show descriptions for all options (like askusertool.ts)
-					if (opt.description) {
-						const descLines = wrapText(opt.description, Math.max(1, maxW - 6));
+					// Show description only when selected (from legacy answer)
+				if (isSelected && opt.description && opt.description.trim().length > 0) {
+						const descriptionIndent = " ".repeat(prefixWidth);
+						const descLines = wrapText(opt.description, Math.max(10, contentWidth - prefixWidth));
 						for (const dl of descLines) {
-							add(`      ${theme.fg("dim", dl)}`);
+							lines.push(boxLine(`${descriptionIndent}${theme.fg("dim", dl)}`));
 						}
 					}
 				}
@@ -1030,7 +1084,9 @@ export function createQnATuiComponent(
 			add(theme.fg("dim", ` ${theme.bold("↑↓")} select · ${theme.bold("Enter")} confirm · ${theme.bold("Esc")} go back`));
 		}
 
-		hr();
+		// Boxed container - BOTTOM
+		lines.push(theme.fg("dim", `╰${horizontalLine(boxWidth - 2)}╯`));
+
 		cachedLines = lines;
 		return lines;
 	};

@@ -152,9 +152,11 @@ async function loadAnswerSettings(
 // ============================================================================
 
 const OptionSchema = Type.Object({
-	value: Type.String({ description: "Value returned when selected" }),
-	label: Type.String({ description: "Display label" }),
+	value: Type.String({ description: "Value returned when selected (required)" }),
+	label: Type.String({ description: "Display label shown to user (required)" }),
 	description: Type.Optional(Type.String({ description: "Help text shown below the label" })),
+}, {
+	description: "Each option needs { label: string, value: string }. Example: { label: \"Yes\", value: \"yes\" }",
 });
 
 const QuestionSchema = Type.Object({
@@ -228,6 +230,21 @@ Each question can include an "Other..." option for custom input.`,
 			"Always include an 'Other' escape hatch (allowOther: true) unless the options are exhaustive.",
 		],
 		parameters: AskUserQuestionParams as any,
+
+		// Auto-fill value from label if not provided
+		prepareArguments(args) {
+			if (!args.questions) return args;
+			return {
+				...args,
+				questions: args.questions.map((q: any) => ({
+					...q,
+					options: q.options?.map((o: any) => ({
+						...o,
+						value: o.value ?? o.label ?? o.description,
+					})),
+				})),
+			};
+		},
 
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			if (!ctx.hasUI) {
@@ -313,18 +330,19 @@ Each question can include an "Other..." option for custom input.`,
 
 			const lines = details.answers.map((a) => {
 				const q = details.questions.find((q) => q.id === a.id);
+				const prompt = q?.prompt ?? a.id;
 				const label = q?.label || a.id;
 
 				if (a.type === "radio") {
 					const prefix = a.wasCustom ? theme.fg("dim", "(wrote) ") : "";
-					return `${theme.fg("success", "✓")} ${theme.fg("accent", label)}: ${prefix}${a.value}`;
+					return `${theme.fg("success", "✓")} ${theme.fg("accent", label)}: ${prefix}${a.value}\n${theme.fg("dim", `  → ${prompt}`)}`;
 				}
 				if (a.type === "checkbox") {
 					const values = Array.isArray(a.value) ? a.value : [a.value];
 					const display = values.length ? values.join(", ") : theme.fg("dim", "(none)");
-					return `${theme.fg("success", "✓")} ${theme.fg("accent", label)}: ${display}`;
+					return `${theme.fg("success", "✓")} ${theme.fg("accent", label)}: ${display}\n${theme.fg("dim", `  → ${prompt}`)}`;
 				}
-				return `${theme.fg("success", "✓")} ${theme.fg("accent", label)}: ${a.value || theme.fg("dim", "(empty)")}`;
+				return `${theme.fg("success", "✓")} ${theme.fg("accent", label)}: ${a.value || theme.fg("dim", "(empty)")}\n${theme.fg("dim", `  → ${prompt}`)}`;
 			});
 
 			return new Text(lines.join("\n"), 0, 0);
