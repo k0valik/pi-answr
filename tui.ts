@@ -817,6 +817,7 @@ export function createQnATuiComponent(
 
 		// Checkbox Enter to advance
 		if (q.type === "checkbox" && matchesKey(data, Key.enter) && !matchesKey(data, Key.shift("enter"))) {
+			saveCurrentResponse();
 			advanceTab();
 			return;
 		}
@@ -841,10 +842,15 @@ export function createQnATuiComponent(
 
 		const lines: string[] = [];
 		const maxW = Math.min(width, 120);
-		const boxWidth = Math.max(40, Math.min(width - 4, 120));
+
+		// Dynamic box width: wide enough for all hints
+		const boxWidth = Math.max(80, Math.min(width - 4, 120));
 		const contentWidth = boxWidth - 4;
 
 		const horizontalLine = (count: number) => "─".repeat(count);
+
+		// Strip trailing ellipsis from text (for user input display)
+		const stripEllipsis = (s: string) => s.replace(/\.{3,} *$/, "");
 
 		// Boxed container helpers (from legacy answer)
 		const boxLine = (content: string, leftPad: number = 2): string => {
@@ -909,7 +915,7 @@ export function createQnATuiComponent(
 		if (!showingConfirmation && curQ()) {
 			const q = curQ()!;
 
-			lines.push("");
+			lines.push(emptyBoxLine());
 
 			// Question label
 			if (q.label) {
@@ -933,7 +939,7 @@ export function createQnATuiComponent(
 				add(` ${theme.fg("warning", "*required")}`);
 			}
 
-			lines.push("");
+			lines.push(emptyBoxLine());
 
 				// Options with numbered labels (from legacy answer)
 			if (q.type === "radio" || q.type === "checkbox") {
@@ -1008,10 +1014,10 @@ export function createQnATuiComponent(
 
 				// Show editor for Other
 				if ((otherMode || editorMode) && q.allowOther) {
-					lines.push("");
+					lines.push(emptyBoxLine());
 					add(theme.fg("muted", "  Your answer:"));
 					for (const line of editor.render(maxW - 6)) {
-						add(`   ${line}`);
+						add(`   ${stripEllipsis(line)}`);
 					}
 				}
 			}
@@ -1022,11 +1028,11 @@ export function createQnATuiComponent(
 					add(` ${theme.fg("dim", q.placeholder)}`);
 				}
 				for (const line of editor.render(maxW - 4)) {
-					add(`  ${line}`);
+					add(`  ${stripEllipsis(line)}`);
 				}
 			}
 
-			lines.push("");
+			lines.push(emptyBoxLine());
 
 			// Footer hints (with all keybindings)
 			const sep = theme.fg("dim", " · ");
@@ -1057,7 +1063,7 @@ export function createQnATuiComponent(
 
 		// Confirmation page
 		if (showingConfirmation) {
-			lines.push("");
+			lines.push(emptyBoxLine());
 
 			const unanswered = getUnansweredQuestions();
 			const hasUnanswered = unanswered.length > 0;
@@ -1066,7 +1072,7 @@ export function createQnATuiComponent(
 				add(theme.fg("warning", theme.bold(`⚠ ${unanswered.length} question${unanswered.length > 1 ? "s" : ""} not answered`)));
 				const missingQ = unanswered.map((i) => questions[i].prompt).join(", ");
 				add(theme.fg("warning", `Missing: ${truncateToWidth(missingQ, maxW - 10)}`));
-				lines.push("");
+				lines.push(emptyBoxLine());
 			}
 
 			add(theme.fg("accent", theme.bold("Review your answers:")));
@@ -1096,7 +1102,7 @@ export function createQnATuiComponent(
 				add(`  ${marker} ${theme.fg("accent", q.label || `Q${i + 1}`)}: ${displayText}`);
 			}
 
-			lines.push("");
+			lines.push(emptyBoxLine());
 
 			const confirmSelected = confirmPageSelection === "confirm";
 			const revisitSelected = confirmPageSelection === "revisit";
@@ -1107,7 +1113,7 @@ export function createQnATuiComponent(
 			add(`${marker(confirmSelected)} ${label(confirmSelected, "Confirm All")}`);
 			add(`${marker(revisitSelected)} ${label(revisitSelected, "Revisit Questions")}`);
 
-			lines.push("");
+			lines.push(emptyBoxLine());
 			add(theme.fg("dim", ` ${theme.bold("↑↓")} select · ${theme.bold("Enter")} confirm · ${theme.bold("Esc")} go back · ${theme.bold("Esc Esc")} revisit`));
 		}
 
