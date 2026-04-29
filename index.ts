@@ -16,7 +16,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { complete, type Model, type Api, type UserMessage } from "@mariozechner/pi-ai";
 import { BorderedLoader, getAgentDir } from "@mariozechner/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { Text } from "@mariozechner/pi-tui";
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
@@ -102,8 +102,13 @@ async function readSettingsFile(
 }
 
 function getAnswerSettingsPaths(cwd: string): { globalPath: string; projectPath: string } {
+	// Guard: ensure getAgentDir returns a valid path
+	let agentDir = getAgentDir();
+	if (!agentDir || typeof agentDir !== "string") {
+		agentDir = process.env.HOME || "/home/" + (process.env.USER || "");
+	}
 	return {
-		globalPath: path.join(getAgentDir(), "settings.json"),
+		globalPath: path.join(agentDir, "settings.json"),
 		projectPath: path.join(cwd, ".pi", "settings.json"),
 	};
 }
@@ -182,30 +187,31 @@ const AskUserQuestionParams = Type.Object({
 // Extension Entry
 // ============================================================================
 
-export default async function (pi: ExtensionAPI) {
-	// ========================================================================
-	// Load settings first to check if tool should be enabled
-	// ========================================================================
+// Default settings until loaded
+const DEFAULT_SETTINGS: SettingsWithDefaults = {
+	toolEnabled: true,
+	extractionModels: DEFAULT_MODEL_PREFERENCES,
+	extractionTimeoutMs: DEFAULT_EXTRACTION_TIMEOUT_MS,
+	debugNotifications: false,
+	answerTemplates: [],
+	drafts: DEFAULT_DRAFT_SETTINGS,
+};
 
-	// @ts-expect-error - cwd, hasUI, ui exist at runtime
-	const settings = await loadAnswerSettings({ cwd: pi.cwd, hasUI: pi.hasUI, ui: pi.ui });
+let currentSettings = DEFAULT_SETTINGS;
 
-	// Helper for debug notifications (only shows if debugNotifications is enabled)
-	const debugNotify = settings.debugNotifications
-		? (msg: string) => {
-				// @ts-expect-error - pi.hasUI exists at runtime
-				if (pi.hasUI) {
-					// @ts-expect-error - pi.ui exists at runtime
-					pi.ui.notify(msg, "info");
-				}
-			}
-		: () => {};
-
+export default function (pi: ExtensionAPI) {
 	// ========================================================================
+	// Load settings async after registration (don't block factory)
+	// ========================================================================
+	loadAnswerSettings({ cwd: pi.cwd, hasUI: pi.hasUI, ui: pi.ui })
+		.then((settings) => {
+			currentSettings = settings;
+		})
+		.catch(() => {});
 	// Register ask_user_question tool (only if enabled in settings)
 	// ========================================================================
 
-	if (settings.toolEnabled) {
+	if (currentSettings.toolEnabled) {
 	pi.registerTool({
 		name: "ask_user_question",
 		label: "Ask User",
