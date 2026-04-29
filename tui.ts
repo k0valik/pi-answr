@@ -379,27 +379,27 @@ export function createQnATuiComponent(
 				responses[currentIndex].selectionTouched = true;
 			}
 		} else if (q.type === "radio") {
-			const qOptions = q.options ?? [];
-			const otherIndex = qOptions.length;
-			const isOnOther = responses[currentIndex].selectedOptionIndex === otherIndex;
-			const shouldUseEditor = isOnOther || editorMode;
+			// Only save if user explicitly selected (touched)
+			if (responses[currentIndex].selectionTouched) {
+				const qOptions = q.options ?? [];
+				const otherIndex = qOptions.length;
+				const isOnOther = responses[currentIndex].selectedOptionIndex === otherIndex;
+				const shouldUseEditor = isOnOther || editorMode;
 
-			if (shouldUseEditor && q.allowOther) {
-				const custom = editor.getText().trim();
-				if (custom) {
-					radioAnswers.set(q.id, { id: q.id, type: "radio", value: custom, wasCustom: true });
-				}
-			} else {
-				const selected = responses[currentIndex].selectedOptionIndex;
-				if (selected < qOptions.length) {
-					const opt = qOptions[selected];
-					radioAnswers.set(q.id, { id: q.id, type: "radio", value: opt.value, wasCustom: false });
+				if (shouldUseEditor && q.allowOther) {
+					const custom = editor.getText().trim();
+					if (custom) {
+						radioAnswers.set(q.id, { id: q.id, type: "radio", value: custom, wasCustom: true });
+					}
+				} else {
+					const selected = responses[currentIndex].selectedOptionIndex;
+					if (selected < qOptions.length) {
+						const opt = qOptions[selected];
+						radioAnswers.set(q.id, { id: q.id, type: "radio", value: opt.value, wasCustom: false });
+					}
 				}
 			}
-
-			if (responses[currentIndex].selectionTouched || editorMode) {
-				responses[currentIndex].selectionTouched = true;
-			}
+			// Mark as touched if user pressed enter or moved selection
 		} else if (q.type === "checkbox") {
 			// FIXED: Checkbox save logic - handle Other editor + multi-select persistence
 			const isOnOther = responses[currentIndex].selectedOptionIndex === q.options.length;
@@ -710,13 +710,20 @@ export function createQnATuiComponent(
 
 		// Arrow navigation for options
 		const total = optionCount(q);
-		if (matchesKey(data, Key.up)) {
-			cursorIdx = Math.max(0, cursorIdx - 1);
-			invalidate();
-			return;
-		}
-		if (matchesKey(data, Key.down)) {
-			cursorIdx = Math.min(total - 1, cursorIdx + 1);
+		if (matchesKey(data, Key.up) || matchesKey(data, Key.down)) {
+			const prevIdx = cursorIdx;
+			if (matchesKey(data, Key.up)) {
+				cursorIdx = Math.max(0, cursorIdx - 1);
+			} else {
+				cursorIdx = Math.min(total - 1, cursorIdx + 1);
+			}
+			// Mark as touched if user moved from default position
+			if (prevIdx !== cursorIdx) {
+				if (prevIdx === 0) {
+					responses[currentIndex].selectedOptionIndex = cursorIdx;
+				}
+				responses[currentIndex].selectionTouched = true;
+			}
 			invalidate();
 			return;
 		}
