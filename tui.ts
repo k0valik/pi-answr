@@ -117,6 +117,7 @@ export function createQnATuiComponent(
 	let showingConfirmation = false;
 	let confirmPageSelection: "confirm" | "revisit" = "revisit";
 	let confirmWarningShown = false;
+	let lastEscapeTime = 0;
 	let templateIndex = 0;
 	let cachedLines: string[] | undefined;
 
@@ -297,31 +298,37 @@ export function createQnATuiComponent(
 	};
 
 	const switchTab = (delta: number) => {
-		// Calculate new index including confirmation page (at index = questions.length)
-		const totalTabs = questions.length + 1; // questions + confirmation
-		let newIndex = currentIndex + delta;
+		// Position: questions are 0..N-1, Summary is at position N
+		const currentPos = showingConfirmation ? questions.length : currentIndex;
+		let newIndex = currentPos + delta;
 		
-		// Handle wrapping for both directions
+		// Total positions: 0..questions.length (questions + Summary)
+		const totalTabs = questions.length + 1;
 		if (newIndex < 0) {
-			newIndex = totalTabs - 1;
+			newIndex = totalTabs - 1; // Wrap to Summary
 		} else if (newIndex >= totalTabs) {
-			newIndex = 0;
+			newIndex = 0; // Wrap to Q1
 		}
 		
-		// Check if we hit the confirmation page
+		// Navigate based on position
 		if (newIndex >= questions.length) {
+			// Going to Summary
 			showingConfirmation = true;
 			confirmWarningShown = false;
 			const unanswered = getUnansweredQuestions();
 			confirmPageSelection = unanswered.length > 0 ? "revisit" : "confirm";
-			// Save current question first
-			saveCurrentResponse();
-			// Don't update currentIndex when on confirmation
+			// Save current response if we were on a question
+			if (currentPos < questions.length) {
+				saveCurrentResponse();
+			}
 			invalidate();
 			return;
 		}
 		
-		// Navigate to question
+		// Navigating to a question
+		if (showingConfirmation) {
+			saveCurrentResponse();
+		}
 		showingConfirmation = false;
 		navigateTo(newIndex);
 	};
@@ -560,6 +567,18 @@ export function createQnATuiComponent(
 			}
 
 			if (matchesKey(data, Key.escape)) {
+				const now = Date.now();
+				// Double escape within 500ms goes to Revisit Questions
+				if (now - lastEscapeTime < 500) {
+					const unanswered = getUnansweredQuestions();
+					showingConfirmation = false;
+					confirmWarningShown = false;
+					navigateTo(unanswered.length > 0 ? unanswered[0] : 0);
+					lastEscapeTime = 0;
+					invalidate();
+					return;
+				}
+				lastEscapeTime = now;
 				showingConfirmation = false;
 				navigateTo(questions.length - 1);
 				invalidate();
@@ -1009,7 +1028,7 @@ export function createQnATuiComponent(
 
 			lines.push("");
 
-			// Footer hints (with Shift+Enter hint for text)
+			// Footer hints (with all keybindings)
 			const sep = theme.fg("dim", " · ");
 			const fmt = (shortcut: string, action: string) => `${theme.bold(shortcut)} ${theme.italic(action)}`;
 
@@ -1017,16 +1036,18 @@ export function createQnATuiComponent(
 			hints.push(fmt("Tab", "next"));
 			hints.push(fmt("⇧Tab", "prev"));
 			hints.push(fmt("Enter", "select"));
+			hints.push(fmt("↑↓", "navigate"));
 
 			if (q.type !== "text") {
-				hints.push(fmt("↑↓", "navigate"));
 				hints.push(fmt("Space", "toggle"));
 				hints.push(fmt("Ctrl+E", "append"));
 			}
 			if (q.type === "text") {
 				hints.push(fmt("Alt+⇧Enter", "newline"));
-				hints.push(fmt("Esc", "cancel"));
 			}
+			hints.push(fmt("Esc", "cancel"));
+			hints.push(fmt("Ctrl+C", "exit"));
+
 			if (options?.templates?.length) {
 				hints.push(fmt("Ctrl+T", templatePreviewMode ? "next" : "template"));
 			}
@@ -1087,7 +1108,7 @@ export function createQnATuiComponent(
 			add(`${marker(revisitSelected)} ${label(revisitSelected, "Revisit Questions")}`);
 
 			lines.push("");
-			add(theme.fg("dim", ` ${theme.bold("↑↓")} select · ${theme.bold("Enter")} confirm · ${theme.bold("Esc")} go back`));
+			add(theme.fg("dim", ` ${theme.bold("↑↓")} select · ${theme.bold("Enter")} confirm · ${theme.bold("Esc")} go back · ${theme.bold("Esc Esc")} revisit`));
 		}
 
 		// Boxed container - BOTTOM
