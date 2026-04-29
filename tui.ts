@@ -10,7 +10,7 @@
  * - Up/Down: navigate options within a question
  * - Space: toggle checkbox
  * - Enter: select radio / submit text / advance / confirm
- * - Shift+Enter: insert newline in text inputs
+ * - Alt+Shift+Enter or Shift+Enter: insert newline in text inputs
  * - Escape: cancel / go back
  * - Ctrl+E: append to current answer (without switching to Other)
  * - Ctrl+T: cycle templates (preview)
@@ -583,12 +583,10 @@ export function createQnATuiComponent(
 			return;
 		}
 
-		// Shift+Enter for newline - check shouldUseEditor first
-		if (matchesKey(data, Key.shift("enter"))) {
-			if (shouldUseEditor()) {
-				editor.handleInput("\n");
-				invalidate();
-			}
+		// Alt+Shift+Enter or Shift+Enter for newline - always handle, not restricted to shouldUseEditor (from legacy)
+		if (matchesKey(data, Key.altShift("enter")) || matchesKey(data, Key.shift("enter"))) {
+			editor.handleInput("\n");
+			invalidate();
 			return;
 		}
 
@@ -629,26 +627,18 @@ export function createQnATuiComponent(
 			return;
 		}
 
-		// Tab navigation - cycle only through questions (NOT to confirmation)
+		// Tab navigation - cycle through questions AND summary
 		if (matchesKey(data, Key.tab)) {
 			saveCurrentResponse();
-			if (currentIndex < questions.length - 1) {
-				navigateTo(currentIndex + 1);
-			} else {
-				navigateTo(0); // Wrap to first question
-			}
+			switchTab(1);
 			invalidate();
 			return;
 		}
 
-		// Shift+Tab navigation - cycle backward only through questions
+		// Shift+Tab navigation - cycle backward including summary
 		if (matchesKey(data, Key.shift("tab"))) {
 			saveCurrentResponse();
-			if (currentIndex > 0) {
-				navigateTo(currentIndex - 1);
-			} else {
-				navigateTo(questions.length - 1); // Wrap to last question
-			}
+			switchTab(-1);
 			invalidate();
 			return;
 		}
@@ -1018,7 +1008,7 @@ export function createQnATuiComponent(
 				hints.push(fmt("Ctrl+E", "append"));
 			}
 			if (q.type === "text") {
-				hints.push(fmt("⇧Enter", "newline"));
+				hints.push(fmt("Alt+⇧Enter", "newline"));
 				hints.push(fmt("Esc", "cancel"));
 			}
 			if (options?.templates?.length) {
