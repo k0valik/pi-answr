@@ -566,8 +566,17 @@ export function createQnATuiComponent(
 				return;
 			}
 
-			// NO Tab handling in confirmation page - falls through and is ignored
-			// Only Up/Down/Enter/Escape work here
+			// Tab cycling in confirmation page - allow cycling through summary
+			if (matchesKey(data, Key.tab)) {
+				switchTab(1);
+				invalidate();
+				return;
+			}
+			if (matchesKey(data, Key.shift("tab"))) {
+				switchTab(-1);
+				invalidate();
+				return;
+			}
 
 			if (matchesKey(data, Key.ctrl("c"))) {
 				cancel();
