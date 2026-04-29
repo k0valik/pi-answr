@@ -76,6 +76,9 @@ interface SettingsWithDefaults {
 	drafts: Required<AnswerDraftSettings>;
 }
 
+// Module-level settings cache (Issue #2 fix)
+let cachedSettings: SettingsWithDefaults | null = null;
+
 // ============================================================================
 // Settings Loading
 // ============================================================================
@@ -108,7 +111,13 @@ function getAnswerSettingsPaths(cwd: string): { globalPath: string; projectPath:
 async function loadAnswerSettings(
 	// @ts-expect-error - hasUI, ui, cwd exist at runtime
 	ctx: { cwd: string; hasUI: boolean; ui: ExtensionAPI["ui"] },
+	forceRefresh = false,
 ): Promise<SettingsWithDefaults> {
+	// Return cached settings if available (Issue #2 fix)
+	if (!forceRefresh && cachedSettings) {
+		return cachedSettings;
+	}
+
 	const { globalPath, projectPath } = getAnswerSettingsPaths(ctx.cwd);
 
 	const [globalSettings, projectSettings] = await Promise.all([
@@ -119,7 +128,7 @@ async function loadAnswerSettings(
 	const global = (globalSettings?.answer as AnswerSettings | undefined) ?? {};
 	const project = (projectSettings?.answer as AnswerSettings | undefined) ?? {};
 
-	return {
+	return cachedSettings = {
 		toolEnabled: project.toolEnabled ?? global.toolEnabled ?? true,
 		extractionModels: project.extractionModels ?? global.extractionModels ?? DEFAULT_MODEL_PREFERENCES,
 		extractionTimeoutMs: project.extractionTimeoutMs ?? global.extractionTimeoutMs ?? DEFAULT_EXTRACTION_TIMEOUT_MS,
@@ -329,6 +338,30 @@ Each question can include an "Other..." option for custom input.`,
 		timestamp: number;
 	} | null = null;
 
+	// Type guard for validating cache data (Issue #1 fix)
+	function isValidCacheData(data: unknown): data is { questions: UnifiedQuestion[]; sourceEntryId: string; lastAssistantEntryId: string; timestamp: number } {
+		return (
+			data !== null &&
+			typeof data === "object" &&
+			"questions" in data &&
+			Array.isArray((data as any).questions) &&
+			"sourceEntryId" in data &&
+			typeof (data as any).sourceEntryId === "string"
+		);
+	}
+
+	// Type guard for message details
+	function isValidMessageDetails(data: unknown): data is { questions: UnifiedQuestion[]; sourceEntryId: string; lastAssistantEntryId?: string; timestamp: number } {
+		return (
+			data !== null &&
+			typeof data === "object" &&
+			"questions" in data &&
+			Array.isArray((data as any).questions) &&
+			"sourceEntryId" in data &&
+			typeof (data as any).sourceEntryId === "string"
+		);
+	}
+
 	// Persist cache to session
 	const persistCache = () => {
 		if (!cachedExtraction) return;
@@ -351,7 +384,7 @@ Each question can include an "Other..." option for custom input.`,
 		for (const entry of entries) {
 			if (entry.type === "custom" && entry.customType === "answer:again") {
 				const cache = entry.data as typeof cachedExtraction;
-				if (cache?.questions && cache?.sourceEntryId) {
+				if (isValidCacheData(cache)) {
 					const entryTime = cache.timestamp ?? 0;
 					if (entryTime > latestTime) {
 						latestCache = cache;
@@ -373,7 +406,8 @@ Each question can include an "Other..." option for custom input.`,
 		for (const entry of entries) {
 			if (entry.type === "message" && "customType" in entry.message && entry.message.customType === "answers") {
 				const details = (entry.message as any).details;
-				if (details?.questions && details?.sourceEntryId) {
+				// Use type guard (Issue #1 fix)
+				if (isValidMessageDetails(details)) {
 					const entryTime = details.timestamp ?? 0;
 					if (entryTime > latestMessageTime) {
 						latestMessageCache = {
@@ -480,12 +514,24 @@ Each question can include an "Other..." option for custom input.`,
 				return parseExtractionResult(responseText);
 			};
 
-			doExtract().then(done).catch(() => done(null));
+			doExtract()
+				.then((result) => done(result))
+				.catch((err) => {
+					// Store error message for user feedback
+					(done as { error?: string }).error = err.message ?? "Extraction failed";
+					done(null);
+				});
 			return loader;
 		});
 
 		if (!extractionResult) {
-			ctx.ui.notify("Cancelled", "info");
+			// Check if there was an extraction error or user cancelled
+			const errorMsg = (extractionResult as { error?: string })?.error;
+			if (errorMsg) {
+				ctx.ui.notify(`Extraction failed: ${errorMsg} - try again`, "warning");
+			} else {
+				ctx.ui.notify("Extraction cancelled - no questions extracted", "info");
+			}
 			return;
 		}
 

@@ -696,6 +696,18 @@ export function createQnATuiComponent(
 				checkAnswers.set(q.id, set);
 				// Mark as touched so we know user has interacted
 				responses[currentIndex].selectionTouched = true;
+				// Update selectedOptionIndices for persistence
+				const selectedIndices: number[] = [];
+				for (let i = 0; i < q.options.length; i++) {
+					if (set.has(q.options[i].value)) {
+						selectedIndices.push(i);
+					}
+				}
+				if (selectedIndices.length > 0) {
+					responses[currentIndex].selectedOptionIndices = selectedIndices;
+				} else {
+					delete responses[currentIndex].selectedOptionIndices;
+				}
 				invalidate();
 			}
 			return;
