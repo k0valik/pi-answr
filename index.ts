@@ -251,10 +251,11 @@ Each question can include an "Other..." option for custom input.`,
 			const normalizedQuestions = normalizeQuestions(params.questions as UnifiedQuestion[]);
 
 			const result = await ctx.ui.custom<FormResult>((tui, theme, _kb, done) => {
-				const component = createQnATuiComponent(normalizedQuestions, { ui: tui, theme } as any, done, {
+				const component = createQnATuiComponent(normalizedQuestions, { ui: tui, theme }, done, {
 					title: params.title,
 					description: params.description,
 					templates: settings.answerTemplates,
+					theme,
 				});
 				return component as any;
 			});
@@ -578,6 +579,7 @@ Each question can include an "Other..." option for custom input.`,
 				templates,
 				initialResponses,
 				onResponsesChange: (responses) => draftStore.schedule(responses),
+				theme,
 			});
 			return component as any;
 		});
@@ -683,6 +685,7 @@ Each question can include an "Other..." option for custom input.`,
 				templates,
 				initialResponses,
 				onResponsesChange: (responses) => draftStore.schedule(responses),
+				theme,
 			});
 			return component as any;
 		});

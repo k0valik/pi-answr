@@ -17,7 +17,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Editor, type EditorTheme, Key, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { Editor, type EditorTheme, Key, matchesKey, truncateToWidth, visibleWidth, type TUI, type Theme } from "@mariozechner/pi-tui";
 import type { NormalizedQuestion, UnifiedQuestion } from "./schema";
 import { applyTemplate, type Template } from "./templates";
 import type { QnAResponse } from "./drafts";
@@ -75,7 +75,7 @@ function summarizeAnswer(text: string, maxLength: number = 60): string {
 
 export function createQnATuiComponent(
 	questions: NormalizedQuestion[],
-	tui: ExtensionContext["ui"],
+	ctx: { ui: TUI; theme?: { fg: (color: string, text: string) => string; bold?: (text: string) => string } },
 	done: (result: FormResult | null) => void,
 	options?: {
 		title?: string;
@@ -83,10 +83,13 @@ export function createQnATuiComponent(
 		templates?: Template[];
 		initialResponses?: QnAResponse[];
 		onResponsesChange?: (responses: QnAResponse[]) => void;
-		theme?: ExtensionContext["ui"]["theme"];
 	},
 ) {
-	const { theme } = tui;
+	const tui = ctx.ui;
+	const theme = ctx.theme!;
+	if (!theme) {
+		throw new Error("theme is required in ctx.theme");
+	}
 	const editorTheme: EditorTheme = {
 		borderColor: (s) => theme.fg("dim", s),
 		selectList: {
@@ -97,6 +100,12 @@ export function createQnATuiComponent(
 	};
 
 	const editor = new Editor(tui as any, editorTheme);
+	editor.disableSubmit = true;
+	editor.onChange = () => {
+		saveCurrentResponse();
+		invalidate();
+		tui.requestRender();
+	};
 
 	// State
 	let currentIndex = 0;
@@ -258,20 +267,50 @@ export function createQnATuiComponent(
 	};
 
 	const advanceTab = () => {
+		// If on last question, go to confirmation
 		if (currentIndex < questions.length - 1) {
 			navigateTo(currentIndex + 1);
-		} else {
-			// Navigate to confirmation
+		} else if (!showingConfirmation) {
+			// Navigate to confirmation page
 			showingConfirmation = true;
 			confirmWarningShown = false;
 			const unanswered = getUnansweredQuestions();
 			confirmPageSelection = unanswered.length > 0 ? "revisit" : "confirm";
-			invalidate();
+			 invalidate();
+		} else {
+			// Already on confirmation, cycle back to first question
+			showingConfirmation = false;
+			navigateTo(0);
 		}
 	};
 
 	const switchTab = (delta: number) => {
-		const newIndex = ((currentIndex + delta) % questions.length + questions.length) % questions.length;
+		// Calculate new index including confirmation page (at index = questions.length)
+		const totalTabs = questions.length + 1; // questions + confirmation
+		let newIndex = currentIndex + delta;
+		
+		// Handle wrapping for both directions
+		if (newIndex < 0) {
+			newIndex = totalTabs - 1;
+		} else if (newIndex >= totalTabs) {
+			newIndex = 0;
+		}
+		
+		// Check if we hit the confirmation page
+		if (newIndex >= questions.length) {
+			showingConfirmation = true;
+			confirmWarningShown = false;
+			const unanswered = getUnansweredQuestions();
+			confirmPageSelection = unanswered.length > 0 ? "revisit" : "confirm";
+			// Save current question first
+			saveCurrentResponse();
+			// Don't update currentIndex when on confirmation
+			invalidate();
+			return;
+		}
+		
+		// Navigate to question
+		showingConfirmation = false;
 		navigateTo(newIndex);
 	};
 
@@ -502,6 +541,13 @@ export function createQnATuiComponent(
 				return;
 			}
 
+			// Tab to cycle back to first question
+			if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) {
+				switchTab(matchesKey(data, Key.shift("tab")) ? -1 : 1);
+				invalidate();
+				return;
+			}
+
 			if (matchesKey(data, Key.ctrl("c"))) {
 				cancel();
 				return;
@@ -561,26 +607,16 @@ export function createQnATuiComponent(
 			return;
 		}
 
-		// Tab navigation (circular)
+		// Tab navigation - use switchTab to cycle including Summary
 		if (matchesKey(data, Key.tab)) {
-			saveCurrentResponse();
-			if (currentIndex < questions.length - 1) {
-				navigateTo(currentIndex + 1);
-			} else {
-				navigateTo(0);
-			}
+			switchTab(1);
 			invalidate();
 			return;
 		}
 
-		// Shift+Tab navigation (circular backward)
+		// Shift+Tab navigation - use switchTab to cycle backward including Summary
 		if (matchesKey(data, Key.shift("tab"))) {
-			saveCurrentResponse();
-			if (currentIndex > 0) {
-				navigateTo(currentIndex - 1);
-			} else {
-				navigateTo(questions.length - 1);
-			}
+			switchTab(-1);
 			invalidate();
 			return;
 		}
@@ -620,7 +656,14 @@ export function createQnATuiComponent(
 
 		// Text question
 		if (q.type === "text") {
-			if (matchesKey(data, Key.enter)) {
+			// Shift+Enter for newline in text inputs
+			if (matchesKey(data, Key.shift("enter"))) {
+				editor.handleInput("\n");
+				invalidate();
+				return;
+			}
+
+			if (matchesKey(data, Key.enter) && !matchesKey(data, Key.shift("enter"))) {
 				saveCurrentResponse();
 				advanceTab();
 				return;
@@ -648,6 +691,13 @@ export function createQnATuiComponent(
 		}
 		if (matchesKey(data, Key.down)) {
 			cursorIdx = Math.min(total - 1, cursorIdx + 1);
+			invalidate();
+			return;
+		}
+
+		// Shift+Enter for newline - MUST check before Enter handlers
+		if (matchesKey(data, Key.shift("enter"))) {
+			editor.handleInput("\n");
 			invalidate();
 			return;
 		}
@@ -754,10 +804,10 @@ export function createQnATuiComponent(
 		}
 		if (options?.title || options?.description) lines.push("");
 
-		// Progress indicators (askusertool style: ● current, ✓ answered, ○ unanswered)
+		// Progress indicators with Summary tab (answer style: ● current, ✓ answered, ○ unanswered, ▸ Summary)
 		const progressParts: string[] = [];
 		for (let i = 0; i < questions.length; i++) {
-			const current = i === currentIndex;
+			const current = !showingConfirmation && i === currentIndex;
 			const answered = isAnswered(questions[i]);
 			if (current) {
 				progressParts.push(theme.fg("accent", SYM.currentDot));
@@ -767,7 +817,17 @@ export function createQnATuiComponent(
 				progressParts.push(theme.fg("dim", SYM.unansweredDot));
 			}
 		}
-		add(` ${progressParts.join(" ")}`);
+		// Add Summary tab
+		if (showingConfirmation) {
+			progressParts.push(theme.fg("accent", theme.bold("▸ Summary")));
+		} else {
+			progressParts.push(theme.fg("dim", "Summary"));
+		}
+
+		// Add delimiters between each tab (pipe separator for visual separation)
+		const delim = theme.fg("dim", "|");
+		const withDelim = progressParts.map((p, i) => i > 0 ? `${delim} ${p}` : p).join("");
+		add(` ${withDelim}`);
 
 		if (!showingConfirmation && curQ()) {
 			const q = curQ()!;
@@ -870,7 +930,7 @@ export function createQnATuiComponent(
 				// Show editor for Other
 				if ((otherMode || editorMode) && q.allowOther) {
 					lines.push("");
-					add(` ${theme.fg("muted", "  Your answer:")}`);
+					add(theme.fg("muted", "  Your answer:"));
 					for (const line of editor.render(maxW - 6)) {
 						add(`   ${line}`);
 					}
