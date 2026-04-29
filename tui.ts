@@ -10,7 +10,7 @@
  * - Up/Down: navigate options within a question
  * - Space: toggle checkbox
  * - Enter: select radio / submit text / advance / confirm
- * - Alt+Shift+Enter or Shift+Enter: insert newline in text inputs
+ * - Ctrl+Shift+Enter: insert newline in text inputs
  * - Escape: cancel / go back
  * - Ctrl+E: append to current answer (without switching to Other)
  * - Ctrl+T: cycle templates (preview)
@@ -611,8 +611,8 @@ export function createQnATuiComponent(
 			return;
 		}
 
-		// Alt+Shift+Enter or Shift+Enter for newline - always handle, not restricted to shouldUseEditor (from legacy)
-		if (matchesKey(data, Key.altShift("enter")) || matchesKey(data, Key.shift("enter"))) {
+		// Ctrl+Shift+Enter for newline (linux terminal default)
+		if (matchesKey(data, Key.ctrlShift("enter")) || matchesKey(data, Key.altShift("enter")) || matchesKey(data, Key.shift("enter"))) {
 			editor.handleInput("\n");
 			invalidate();
 			return;
@@ -960,7 +960,7 @@ export function createQnATuiComponent(
 
 					const box = isRadio
 						? (isSelected ? theme.fg("accent", SYM.radioOn) : theme.fg("dim", SYM.radioOff))
-						: (isSelected ? theme.fg("accent", SYM.checkOn) : theme.fg("dim", SYM.checkOff));
+						: (isSelected ? theme.fg("green", SYM.checkOn) : theme.fg("dim", SYM.checkOff));
 					const pointer = isCursor ? theme.fg("accent", SYM.pointer) : " ";
 
 					// Add numbered prefix (1. Option A)
@@ -987,12 +987,14 @@ export function createQnATuiComponent(
 				// Other option
 				if (q.allowOther) {
 					const isCursor = cursorIdx === q.options.length;
-					const isSelected = q.type === "radio"
-						? (selected?.wasCustom ?? false)
-						: (!!checkCustom.get(q.id)?.trim());
+					// Checkbox Other is selected if cursor is on it OR has custom text
+					const hasCustom = q.type === "checkbox" ? (!!checkCustom.get(q.id)?.trim() || isCursor) : (selected?.wasCustom ?? false);
+					const isSelected = isCursor || hasCustom;
 
+					// Use green for checkbox selected, accent for radio
+					const checkColor = isSelected ? "green" : "dim";
 					const box = isSelected
-						? theme.fg("accent", isRadio ? SYM.radioOn : SYM.checkOn)
+						? theme.fg(checkColor, isRadio ? SYM.radioOn : SYM.checkOn)
 						: theme.fg("dim", isRadio ? SYM.radioOff : SYM.checkOff);
 					const pointer = isCursor ? theme.fg("accent", SYM.pointer) : " ";
 
@@ -1049,7 +1051,7 @@ export function createQnATuiComponent(
 				hints.push(fmt("Ctrl+E", "append"));
 			}
 			if (q.type === "text") {
-				hints.push(fmt("Alt+⇧Enter", "newline"));
+				hints.push(fmt("Ctrl+⇧Enter", "newline"));
 			}
 			hints.push(fmt("Esc", "cancel"));
 			hints.push(fmt("Ctrl+C", "exit"));
