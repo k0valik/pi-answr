@@ -1,150 +1,253 @@
-# pi-answer 🗣️
+# pi-answr
 
-Unified Q&A extension that lets LLMs ask users structured questions interactively.
+Interactive Q&A bridge for the Pi coding agent that converts unstructured questions from LLMs into structured TUI forms.
 
-- **Commands**: `/answer` extracts questions from the last assistant message; `/answer:again` restores the previous questionnaire
-- **Tool**: `ask_user_question` tool lets LLMs directly request radio, checkbox, or text input
-- **Auto-save**: Answers are saved automatically and can be resumed
+## Overview
 
-## What This Is / What It Is Not
+When an LLM sends a message containing multiple questions, traditional chat requires manual text replies that are error-prone and tedious. pi-answr extracts those questions and renders an interactive terminal form, ensuring the LLM receives exactly the data format it needs.
 
-**What it solves:**
-- LLMs cannot ask users multiple questions in one turn—they typically get one response
-- This extension splits a multi-question intent into an interactive form the user can answer all at once
+## Features
 
-**Who it is for:**
-- Developers using the Pi coding agent who want structured back-and-forth with the LLM
-- Extension authors building tools that need user input before proceeding
+- **Question Extraction** — Uses remote LLMs to parse unstructured text into structured question schemas
+- **Interactive TUI Forms** — Terminal UI with keyboard navigation for radio, checkbox, and text inputs
+- **Draft Autosave** — Responses are persisted automatically to prevent data loss during long forms
+- **Questionnaire Restoration** — Reopen the last questionnaire with `/answer:again`
+- **Tool Integration** — LLMs can trigger forms directly via the `ask_user_question` tool
+- **Template System** — Configurable answer formatting templates
 
-## Quick Start
+## Installation
 
 ```bash
-# Install via Pi's extension manager
-pi ext install pi-answr
+pi install git:https://github.com/k0valik/pi-answr
 ```
 
-Restart Pi if already running, then use:
+Restart Pi if already running.
 
-- `/answer` — Extract and ask questions from the last assistant message
-- `/answer:again` — Reopen the last questionnaire
-- The `ask_user_question` tool is available to LLMs automatically when enabled
+## Commands
 
-## Installation / Setup
+### `/answer`
 
-### Prerequisites
+Extracts questions from the last assistant message and displays an interactive form.
 
-- Pi coding agent (latest version)
-- At least one model configured in `~/.pi/agent/models.json`
+1. Finds the most recent assistant message in the session branch
+2. Sends the message to an extraction model (configured in settings)
+3. Parses the JSON response into a question schema
+4. Renders the TUI form
+5. On submit, formats answers and sends back to the chat
 
-### Configuration
+Implemented in `index.ts`:
+- `answerHandler()` — Main command handler (lines ~295-380)
+- `selectExtractionModel()` from `extraction.ts` — Model selection logic
 
-The extension reads settings from your global or project settings file:
+### `/answer:again`
 
-1. **Global**: `~/.pi/agent/settings.json`
-2. **Project**: `./.pi/settings.json`
+Reopens the last questionnaire without re-extracting. Prompts to restore previous answers if drafts exist.
 
-Project settings override global ones. Add config under the `answer:` key:
+1. Attempts to reconstruct cache from session entries
+2. Prompts user to restore saved answers
+3. Re-renders the form with prior responses filled in
+
+Implemented in `index.ts`:
+- `answerAgainHandler()` — Lines ~420-510
+
+## Tool: `ask_user_question`
+
+LLMs can invoke this tool directly to request structured user input. Registered only if `toolEnabled: true` in settings.
+
+### Parameters
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string? | Form title |
+| `description` | string? | Brief context |
+| `questions` | array | Array of question objects |
+
+### Question Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique identifier |
+| `type` | "radio" / "checkbox" / "text" | Input type |
+| `prompt` | string | Question text |
+| `label` | string? | Short label for progress |
+| `options` | array? | For radio/checkbox |
+| `allowOther` | boolean? | Add "Other..." option |
+| `required` | boolean? | Is answer required |
+| `placeholder` | string? | Placeholder for text input |
+| `default` | string / string[]? | Pre-selected values |
+
+### Option Object
+
+```json
+{
+  "value": "postgres",
+  "label": "PostgreSQL",
+  "description": "Best for relational data"
+}
+```
+
+### Return Format
+
+Answers are returned as formatted text:
+
+```
+Q1: Database: postgres
+Q2: Languages: typescript, rust
+Q3: Project Name: my-cool-app
+```
+
+Or if cancelled: `User cancelled the form`
+
+Implemented in `index.ts`:
+- Tool registration — `pi.registerTool()` block (lines ~175-290)
+- `execute()` function — Form rendering and result formatting
+- Input schema defined via `AskUserQuestionParams` (lines ~140-155)
+
+## Configuration
+
+- See example.config.json
+
+Add an `answer` block to your `settings.json`:
 
 ```json
 {
   "answer": {
     "toolEnabled": true,
-    "debugNotifications": false
-  }
-}
-```
-
-See `example.config.json` for all available options.
-
-### Enable/Disable
-
-The tool is enabled by default. To disable the `ask_user_question` tool while keeping commands:
-
-```json
-{
-  "answer": {
-    "toolEnabled": false
-  }
-}
-```
-
-## Usage
-
-### /answer — Extract from Assistant Message
-
-1. The LLM sends a message with questions
-2. Type `/answer`
-3. The extension extracts questions and shows an interactive form
-4. User answers each question
-5. Answers are sent back as a chat message
-
-### /answer:again — Resume Previous Questionnaire
-
-1. Type `/answer:again`
-2. If previous answers exist, you are asked to restore them
-3. The same form reopens with your prior answers (if restored)
-4. Submit new answers
-
-### ask_user_question Tool — LLM-Initiated Questions
-
-The LLM calls this tool directly. Example arguments:
-
-```json
-{
-  "title": "Choose a color",
-  "description": "Select your preferred theme color",
-  "questions": [
-    {
-      "id": "color",
-      "type": "radio",
-      "prompt": "Which color do you prefer?",
-      "options": [
-        { "value": "blue", "label": "Blue" },
-        { "value": "green", "label": "Green" }
-      ]
+    "extractionModels": [
+      { "provider": "openai-codex", "id": "gpt-5.4-mini" },
+      { "provider": "github-copilot", "id": "gpt-5.4-mini" },
+      { "provider": "anthropic", "id": "claude-haiku-4-5" }
+    ],
+    "extractionTimeoutMs": 30000,
+    "debugNotifications": false,
+    "answerTemplates": [
+      { "label": "Q&A", "template": "Q{{index}}: {{question}}\nA: {{answer}}" },
+      { "label": "Concise", "template": "{{question}}: {{answer}}" }
+    ],
+    "drafts": {
+      "enabled": true,
+      "autosaveMs": 1000,
+      "promptOnRestore": true
     }
-  ]
+  }
 }
 ```
 
-Returns formatted answers:
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `toolEnabled` | boolean | `true` | Enable the ask_user_question tool |
+| `extractionModels` | array | (see below) | Models used for extraction, sensible defaults below, doesn't break main conversation prompt cache |
+| `extractionTimeoutMs` | number | `30000` | Extraction timeout in ms |
+| `debugNotifications` | boolean | `false` | Show tool error notifications |
+| `answerTemplates` | array | [] | Custom answer formatting templates |
+| `drafts.enabled` | boolean | `true` | Enable draft autosave |
+| `drafts.autosaveMs` | number | `1000` | Autosave delay in ms |
+| `drafts.promptOnRestore` | boolean | `true` | Prompt before restoring drafts |
 
+Default extraction models (`DEFAULT_MODEL_PREFERENCES` in `extraction.ts`):
+
+```typescript
+[
+  { provider: "openai-codex", id: "gpt-5.4-mini" },
+  { provider: "github-copilot", "id": "gpt-5.4-mini" },
+  { provider: "anthropic", id: "claude-haiku-4-5" }
+]
 ```
-Q1: color: blue
-```
 
-The LLM sees this tool with:
-- Name: `ask_user_question`
-- Supports: `radio` (single-select), `checkbox` (multi-select), `text` (free-form)
-- Each question needs: `id`, `type`, `prompt`
+Settings are read from (in order of precedence):
 
-## Features
+1. Project: `./.pi/agent/settings.json`
+2. Global: `~/.pi/agent/settings.json`
 
-- **`/answer`** — Extract questions from the last assistant message
-- **`/answer:again`** — Reopen the last questionnaire
-- **`ask_user_question` tool** — LLM calls this to request user input
-- **Question types** — radio, checkbox, text with options support
-- **Auto-save** — Answers are saved and can be resumed
-- **Draft restore** — Prompts to restore saved answers on `/answer:again`
-- **Templates** — Predefined answer formats (Q&A, Concise, Numbered)
-- **Unanswered detection** — Alerts before submission if any questions are incomplete
-- **Circular navigation** — Tab cycles through questions (wraps at end)
-- **Template cycling** — Ctrl+T swaps between answer templates with live preview
-- **Confirmation flow** — Two-step confirm: select option then submit
+Implemented in `index.ts`:
+- `loadAnswerSettings()` — Settings loading with caching (lines ~95-130)
+- `getAnswerSettingsPaths()` — Path resolution
 
-## How It Works (High-Level)
+## Architecture
 
-1. **Extraction** (`/answer`): The LLM's last message is sent to a selected extraction model, which returns a question schema. The extension renders these as an interactive TUI form.
+### Modules
 
-2. **Tool execution** (`ask_user_question`): The LLM passes a question schema directly to the tool. The extension normalizes it and renders the form. Answers return as formatted text.
+| File | Purpose |
+|------|---------|
+| `index.ts` | Extension entry, commands, tool registration |
+| `extraction.ts` | LLM extraction logic, model selection |
+| `schema.ts` | Question schemas, normalization, parsing |
+| `templates.ts` | Answer formatting templates |
+| `drafts.ts` | Auto-save draft persistence |
+| `tui.ts` | Terminal UI component |
 
-3. **Draft system**: Answers are auto-saved to a draft store. On `/answer:again`, the form reopens with saved values if the user confirms.
+### Extraction Flow
 
-4. **Return format**: Answers return as `Q{number}: {label}: {value}` for easy parsing.
+1. User runs `/answer`
+2. `answerHandler()` finds the last assistant message
+3. `selectExtractionModel()` picks an available model from preferences
+4. Message sent to model with `DEFAULT_SYSTEM_PROMPT` (extraction.ts)
+5. Model returns JSON with question schema
+6. `parseExtractionResult()` parses JSON (schema.ts)
+7. Questions normalized via `normalizeQuestions()` (schema.ts)
+8. TUI form rendered
+9. Answers formatted and sent as chat message
+
+### Schema Normalization
+
+`schema.ts` provides the core data model:
+
+- `UnifiedQuestion` — Raw question from extraction or tool params
+- `NormalizedQuestion` — Fully typed question for TUI
+- `normalizeQuestions()` — Converts raw input to normalized form
+- `parseExtractionResult()` — Parses LLM JSON response
+
+### Draft System
+
+Implemented in `drafts.ts`:
+
+- `createDraftStore()` — Creates a draft persistence store
+- `getLatestDraftForEntry()` — Retrieves saved draft
+- `getInitialResponses()` — Restores responses from draft
+- `deriveAnswersFromResponses()` — Converts TUI responses to answer strings
+
+Drafts are stored as session entries with type `answer:draft`.
+
+## Summary Tab / Confirmation Flow
+
+When a user completes all questions and presses `Tab` once more, they reach the Summary tab (the final position in the tab order).
+
+The Summary page displays:
+
+1. **All answers reviewed** — Shows every question with its answer (or "(no answer)" if unanswered)
+2. **Two selection options**:
+   - "Confirm All" — Submit the form
+   - "Revisit Questions" — Go back to a specific unanswered question
+
+### Unanswered Question Detection
+
+Before submission, the form checks for unanswered questions with `getUnansweredQuestions()` (tui.ts). If questions are marked `required: true` and left blank:
+
+1. First press of `Enter` shows a warning banner: `⚠ X question(s) not answered`
+2. Second press of `Enter` proceeds with submission anyway
+3. Pressing `Up/Down` to select "Revisit Questions" navigates directly to the first unanswered question
+
+The progress indicator shows:
+- `[●]` — Current question
+- `[✓]` — Answered and confirmed (pressed Enter)
+- `[○]` — Answered (selected but not confirmed)
+- `[ ]` — Unanswered
+
+Navigation in Summary:
+- `↑/↓` — Toggle between Confirm All and Revisit Questions
+- `Enter` — Confirm selection
+- `Esc` — Go back to last question
+- `Esc Esc` — Direct jump to first unanswered question
+- `Tab` — Cycle back to first question
+
+Implemented in `tui.ts`:
+- `showingConfirmation` state variable
+- `confirmPageSelection` — "confirm" or "revisit"
+- `confirmWarningShown` — controls warning display
+- `getUnansweredQuestions()` (lines ~170-177) — scans for required-but-empty questions
+- `submit()` (lines ~310-330) — final submission handler
 
 ## Keyboard Shortcuts
-
-While the Q&A TUI is open:
 
 | Key | Action |
 |-----|--------|
@@ -153,122 +256,49 @@ While the Q&A TUI is open:
 | `Up/Down` | Cycle through options |
 | `Enter` | Confirm / Submit (two-step) |
 | `Ctrl+T` | Cycle answer templates |
-| `Escape` | Cancel / Go back |
+| `Escape` | Go back |
+| `Space`  | Select checkbox |
+| `Ctrl+C` or `Escape twice` | Cancel form |
 
-## Configuration
+## Templates
 
-| Option | Type | Default | Description |
-|--------|------|--------|-------------|
-| `toolEnabled` | boolean | `true` | Enable the ask_user_question tool |
-| `extractionModels` | array | GPT-5.4-mini, Copilot, Claude | Models to use for question extraction |
-| `extractionTimeoutMs` | number | `30000` | Timeout for extraction in ms |
-| `debugNotifications` | boolean | `false` | Show tool error notifications |
-| `answerTemplates` | array | Q&A, Concise, Numbered | Answer formatting templates |
-| `drafts.enabled` | boolean | `true` | Enable auto-save drafts |
-| `drafts.autosaveMs` | number | `1000` | Delay before saving |
-| `drafts.promptOnRestore` | boolean | `true` | Prompt before restoring drafts |
+Answer templates use variable substitution:
 
-Override in `settings.json` under `answer:`. See `example.config.json` for full reference.
+| Variable | Description |
+|----------|-------------|
+| `{{question}}` | Question text |
+| `{{context}}` | Optional context/header |
+| `{{answer}}` | User's answer |
+| `{{index}}` | Question number (1-based) |
+| `{{total}}` | Total questions |
 
-## Answer Templates
+Example template:
 
-Templates use placeholders to format the final answer text:
-
-- `{{question}}` — The question text
-- `{{context}}` — Optional question context
-- `{{answer}}` — The user's answer
-- `{{index}}` — Question number (1-based)
-- `{{total}}` — Total questions in the form
-
-**Example template:**
 ```
 {{index}}. {{question}}
    Answer: {{answer}}
 ```
 
 Renders as:
+
 ```
 1. Which color do you prefer?
    Answer: blue
 ```
 
-## Examples
+Implemented in `templates.ts`:
+- `normalizeTemplates()` — Parses template configuration
+- `applyTemplate()` — Variable substitution
 
-### 1. LLM asks for a choice
+## Error Handling
 
-Input (LLM calls ask_user_question):
-```json
-{
-  "title": "Confirm deployment",
-  "questions": [
-    {
-      "id": "env",
-      "type": "radio",
-      "prompt": "Which environment?",
-      "options": [
-        { "value": "staging", "label": "Staging" },
-        { "value": "production", "label": "Production" }
-      ]
-    }
-  ]
-}
-```
+| Condition | LLM Receives |
+|------------|--------------|
+| UI not available | `"Error: UI not available"` |
+| No questions provided | `"Error: No questions provided"` |
+| User cancels | `"User cancelled the form"` |
 
-Output:
-```
-Q1: env: staging
-```
+## Requirements
 
-### 2. User runs /answer on LLM response
-
-LLM: "Should I add error handling? Should I add tests? Should I update docs?"
-
-User runs `/answer` → form shows three checkboxes → user selects → answers sent as message.
-
-### 3. Resume with /answer:again
-
-User previously answered `/answer`, then closed. Run `/answer:again` → prompts to restore → form reopens with prior answers filled in.
-
-### 4. Checkbox with multiple selections
-
-```json
-{
-  "questions": [
-    {
-      "id": "features",
-      "type": "checkbox",
-      "prompt": "Which features to add?",
-      "options": [
-        { "value": "dark_mode", "label": "Dark mode" },
-        { "value": "autosave", "label": "Auto-save" },
-        { "value": "export", "label": "Export" }
-      ]
-    }
-  ]
-}
-```
-
-Output:
-```
-Q1: features: dark_mode, export
-```
-
-### 5. Free-text input
-
-```json
-{
-  "questions": [
-    {
-      "id": "feedback",
-      "type": "text",
-      "prompt": "Any additional feedback?",
-      "placeholder": "Enter your feedback here..."
-    }
-  ]
-}
-```
-
-Output:
-```
-Q1: feedback: This tool is really helpful!
-```
+- Pi coding agent (latest version)
+- At least one model configured in `~/.pi/agent/models.json`

@@ -464,6 +464,35 @@ export function createQnATuiComponent(
 		return "";
 	};
 
+	// Get labels (for display) instead of values (for API)
+	const getCurrentAnswerLabels = (): string => {
+		const q = curQ();
+		if (!q) return "";
+
+		if (q.type === "text") {
+			return textAnswers.get(q.id) ?? "";
+		}
+		if (q.type === "radio") {
+			const a = radioAnswers.get(q.id);
+			if (a) {
+				const opt = q.options.find(o => o.value === a.value);
+				return opt?.label ?? (a.value as string);
+			}
+			return "";
+		}
+		if (q.type === "checkbox") {
+			const set = checkAnswers.get(q.id) ?? new Set<string>();
+			const custom = checkCustom.get(q.id)?.trim();
+			const labels = Array.from(set).map(v => {
+				const opt = q.options.find(o => o.value === v);
+				return opt?.label ?? v;
+			});
+			if (custom) labels.push(custom);
+			return labels.join(", ");
+		}
+		return "";
+	};
+
 	// Template preview
 	const applyNextTemplate = () => {
 		if (!options?.templates?.length) return;
@@ -628,8 +657,13 @@ export function createQnATuiComponent(
 		if (matchesKey(data, Key.ctrl("e"))) {
 			const q = curQ();
 			if (q && q.type !== "text" && (q.options?.length ?? 0) > 0) {
-				// Keep current selection, just enable editor for appending
-				const currentAnswer = getCurrentAnswerText();
+				// Get labels for display (for Ctrl+E append feature)
+				let currentAnswer = getCurrentAnswerLabels();
+				if (!currentAnswer) {
+					// Use current cursor position as fallback (use label, not value)
+					const opt = q.options[cursorIdx];
+					if (opt) currentAnswer = opt.label;
+				}
 				editor.setText(currentAnswer);
 				editorMode = true;
 				invalidate();
@@ -686,6 +720,16 @@ export function createQnATuiComponent(
 					editorMode = false;
 					editor.setText("");
 					advanceTab();
+					return;
+				}
+
+				// Escape in Other mode - exit editor
+				if (matchesKey(data, Key.escape)) {
+					saveCurrentResponse();
+					otherMode = false;
+					editorMode = false;
+					editor.setText("");
+					invalidate();
 					return;
 				}
 
@@ -841,10 +885,11 @@ export function createQnATuiComponent(
 		if (cachedLines) return cachedLines;
 
 		const lines: string[] = [];
+		// Use full terminal width (capped at 120 for very wide terminals)
 		const maxW = Math.min(width, 120);
 
-		// Dynamic box width: wide enough for all hints
-		const boxWidth = Math.max(80, Math.min(width - 4, 120));
+		// Box width: match terminal but cap at 120
+		const boxWidth = Math.min(width - 4, 120);
 		const contentWidth = boxWidth - 4;
 
 		const horizontalLine = (count: number) => "─".repeat(count);
@@ -960,7 +1005,7 @@ export function createQnATuiComponent(
 
 					const box = isRadio
 						? (isSelected ? theme.fg("accent", SYM.radioOn) : theme.fg("dim", SYM.radioOff))
-						: (isSelected ? theme.fg("green", SYM.checkOn) : theme.fg("dim", SYM.checkOff));
+						: (isSelected ? theme.fg("success", SYM.checkOn) : theme.fg("dim", SYM.checkOff));
 					const pointer = isCursor ? theme.fg("accent", SYM.pointer) : " ";
 
 					// Add numbered prefix (1. Option A)
@@ -991,8 +1036,8 @@ export function createQnATuiComponent(
 					const hasCustom = q.type === "checkbox" ? (!!checkCustom.get(q.id)?.trim() || isCursor) : (selected?.wasCustom ?? false);
 					const isSelected = isCursor || hasCustom;
 
-					// Use green for checkbox selected, accent for radio
-					const checkColor = isSelected ? "green" : "dim";
+					// Use success for checkbox selected, accent for radio
+					const checkColor = isSelected ? "success" : "dim";
 					const box = isSelected
 						? theme.fg(checkColor, isRadio ? SYM.radioOn : SYM.checkOn)
 						: theme.fg("dim", isRadio ? SYM.radioOff : SYM.checkOff);
